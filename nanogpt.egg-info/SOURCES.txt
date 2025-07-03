@@ -1,0 +1,9 @@
+README.md
+pyproject.toml
+nanogpt/__init__.py
+nanogpt/modelling_nanogpt.py
+nanogpt.egg-info/PKG-INFO
+nanogpt.egg-info/SOURCES.txt
+nanogpt.egg-info/dependency_links.txt
+nanogpt.egg-info/top_level.txt
+tests/test_modelling_nanogpt.py
