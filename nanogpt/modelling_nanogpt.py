@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from typing import Optional
 import torch
 
 
@@ -6,13 +8,28 @@ import torch
 # x = torch.stack([torch.arange(5), torch.arange(5,10)])
 
 
-class MLP(torch.nn.Module):
-    def __init__(self, d_in: int, d_out):
-        super().__init__()
-        pass
+# TODO: use causal attn mask
+# TODO: what exactly is weight tieing? Is there something more special to it
 
-    def forward(self):
-        pass
+
+@dataclass
+class ModelOutput:
+    logits: torch.Tensor
+    loss: Optional[torch.Tensor] = None
+
+
+class Linear(torch.nn.Module):
+    def __init__(self, d_in: int, d_out, dropout: float = 0.5):
+        super().__init__()
+        self.fc = torch.nn.Sequential(
+            torch.nn.Linear(d_in, d_in),
+            torch.nn.ReLU(),
+            torch.nn.Linear(d_in, d_in),
+            torch.nn.Dropout(dropout),
+        )
+
+    def forward(self, x: torch.Tensor):
+        return self.fc(x)
 
 
 class LayerNorm(torch.nn.Module):
@@ -23,8 +40,8 @@ class LayerNorm(torch.nn.Module):
             d_model (int): Size of last dimension.
         """
         super().__init__()
-        self.gamma = torch.ones(d_model)
-        self.bias = torch.zeros(d_model)
+        self.gamma = torch.nn.Parameter(torch.ones(d_model))
+        self.bias = torch.nn.Parameter(torch.zeros(d_model))
 
     def forward(self, x: torch.Tensor):
         """Foward pass of LN
@@ -35,13 +52,12 @@ class LayerNorm(torch.nn.Module):
         Returns:
             y (torch.Tensor): Output features. Shape: (B, T, D)
         """
-        mu_x = x.mean(-1)
-        var_x = x.var(-1)
+        mu_x = x.mean(-1, keepdim=True)
+        var_x = x.var(-1, keepdim=True)
         y = (x - mu_x / torch.sqrt(var_x)) * self.gamma + self.bias
         return y
 
 
-# TODO: make causal
 class MultiHeadAttention(torch.nn.Module):
     def __init__(self, d_model: int) -> None:
         super().__init__()
@@ -49,9 +65,9 @@ class MultiHeadAttention(torch.nn.Module):
         self.d_model = d_model
 
         # params
-        self.w_q = torch.randn(d_model, d_model)
-        self.w_k = torch.randn(d_model, d_model)
-        self.w_v = torch.randn(d_model, d_model)
+        self.w_q = torch.nn.Parameter(torch.randn(d_model, d_model))
+        self.w_k = torch.nn.Parameter(torch.randn(d_model, d_model))
+        self.w_v = torch.nn.Parameter(torch.randn(d_model, d_model))
 
     def forward(self, x: torch.Tensor):
         """Foward pass of MHA
@@ -69,7 +85,6 @@ class MultiHeadAttention(torch.nn.Module):
         v = torch.einsum("btk,kd->btd", x, self.w_v)
 
         # compute attn matrix O(T^2D)
-        # TODO: check if b dim works as expected
         gamma = 1 / torch.sqrt(1 / torch.tensor(self.d_model))
         a = (
             torch.einsum("bqd,bkd->bqk", q, k) * gamma
@@ -81,13 +96,13 @@ class MultiHeadAttention(torch.nn.Module):
         return y
 
 
-class NanoGPTBlock:
+class NanoGPTBlock(torch.nn.Module):
     def __init__(self, d_model):
         super().__init__()
         self.ln_1 = LayerNorm(d_model)
         self.attn = MultiHeadAttention(d_model)
         self.ln_2 = LayerNorm(d_model)
-        self.mlp = MLP(d_model, d_model)
+        self.mlp = Linear(d_model, d_model)
 
     def forward(self, x: torch.Tensor):
         y = x
@@ -96,16 +111,41 @@ class NanoGPTBlock:
         return x + y
 
 
-# TODO: what exactly is weight tieing? Is there something more special to it
-class NanoGPT:
+class NanoGPT(torch.nn.Module):
     def __init__(self, n_layers, d_model, d_vocab):
         super().__init__()
-        self.encoder = torch.randn(d_vocab, d_model)
+        # dims
+        self.n_layers, self.d_model, self.d_vocab = n_layers, d_model, d_vocab
+        self.encoder = torch.nn.Parameter(torch.randn(d_vocab, d_model))
         self.layers = [NanoGPTBlock(d_model)] * n_layers
         self.decoder = self.encoder
 
-    def forward(self):
-        pass
+    def forward(self, x: torch.Tensor, y: Optional[torch.Tensor]):
+        """NanoGPT fw pass
+
+        Args:
+            x (torch.Tensor): Input tokens in range [0, V). Shape: (B, T)
+            y (torch.Tensor): Target tokens in range [0, V). Shape: (B, T)
+        """
+        # validation
+        assert 0 <= x.min() and x.max() < self.d_vocab, "Invalid input tokens"
+        assert (
+            0 <= y.min() and y.max() < self.d_vocab if y is not None else True
+        ), "Invalid target tokens"
+
+        # fw pass logic
+        z = self.encoder[x]  # (B, T, D)
+        for lyr in self.layers:
+            z = lyr(z)
+        logits = torch.einsum("btd,vd -> btv", z, self.decoder)
+
+        # train mode
+        if y is not None:
+            loss = torch.nn.functional.cross_entropy(
+                logits.reshape(-1, self.d_vocab), y.reshape(-1)
+            )
+            return ModelOutput(logits=logits, loss=loss)
+        return ModelOutput(logits=logits)
 
 
 if __name__ == "__main__":
