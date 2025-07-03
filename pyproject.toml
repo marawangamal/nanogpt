@@ -7,4 +7,4 @@ name = "nanogpt"
 version = "1.0"
 
 [tool.setuptools]
-packages = ["nanogpt"] 
+packages = ["nanogpt", "dataloaders"]
