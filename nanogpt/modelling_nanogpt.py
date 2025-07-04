@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 import torch
 
 
@@ -8,9 +8,10 @@ import torch
 # x = torch.stack([torch.arange(5), torch.arange(5,10)])
 
 
-# TODO: use causal attn mask
-# TODO: what exactly is weight tieing? Is there something more special to it
-# TODO: add positional encoding
+# [x]: use causal attn mask
+# [ ]: Is there something more special to do for weight tieing enc/dec?
+# [ ]: add positional encoding
+# [ ]: use `stop_token` in generate
 
 
 @dataclass
@@ -76,11 +77,13 @@ class MultiHeadAttention(torch.nn.Module):
             torch.nn.Parameter(torch.empty(d_model, d_model))
         )
 
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None):
         """Foward pass of MHA
 
         Args:
             x (torch.Tensor): Input features. Shape: (B, T, D)
+            mask (torch.Tensor): Attention mask (B, T, T)
+
 
         Returns:
             y (torch.Tensor): Output features. Shape: (B, T, D)
@@ -93,8 +96,10 @@ class MultiHeadAttention(torch.nn.Module):
 
         # compute attn matrix O(T^2D)
         gamma = 1 / torch.sqrt(torch.tensor(self.d_model))
+        mask = torch.tril(torch.ones(x.size(1), x.size(1))) if not mask else mask
         a = torch.softmax(
-            torch.einsum("bqd,bkd->bqk", q, k) * gamma, dim=-1
+            ((torch.einsum("bqd,bkd->bqk", q, k) * gamma) * mask),
+            dim=-1,
         )  # i.e., a[b, i, j] = <q_bi, k_bj>
 
         # compute updated values
@@ -127,7 +132,7 @@ class NanoGPT(torch.nn.Module):
         self.layers = [NanoGPTBlock(d_model)] * n_layers
         self.decoder = self.encoder
 
-    def forward(self, x: torch.Tensor, y: Optional[torch.Tensor]):
+    def forward(self, x: torch.Tensor, y: Optional[torch.Tensor] = None):
         """NanoGPT fw pass
 
         Args:
@@ -153,6 +158,17 @@ class NanoGPT(torch.nn.Module):
             )
             return ModelOutput(logits=logits, loss=loss)
         return ModelOutput(logits=logits)
+
+    def generate(self, x: torch.Tensor, max_output_tokens: int):
+        with torch.no_grad():
+            B, T = x.shape
+            y = torch.cat([x, torch.empty(B, max_output_tokens, dtype=torch.int64)], -1)
+            for t in range(max_output_tokens):
+                logits = self(y[:, : T + t]).logits
+                py = torch.softmax(logits[:, -1], dim=-1)  # Shape: (B, D)
+                yi = torch.multinomial(py, 1)  # (B, 1)
+                y[:, T + t] = yi.reshape(-1)
+            return y[:, T : T + t]
 
 
 if __name__ == "__main__":

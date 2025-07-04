@@ -18,7 +18,7 @@ if __name__ == "__main__":
     n_layers = 2
     d_model = 512
     # hparams (opt)
-    epochs = 5
+    epochs = 1
     batch_size = 3
     lr = 1e-2
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -29,9 +29,10 @@ if __name__ == "__main__":
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
 
     # load data
-    stemp = STemp(tokenizer, max_num_samples=100).load_data()
-    train_dl = DataLoader(stemp["train"], batch_size=batch_size, collate_fn=collate_fn)  # type: ignore
-    eval_dl = DataLoader(stemp["eval"], batch_size=batch_size, collate_fn=collate_fn)  # type: ignore
+    stemp = STemp(tokenizer, max_num_samples=100)
+    stemp_ds = stemp.load_data()
+    train_dl = DataLoader(stemp_ds["train"], batch_size=batch_size, collate_fn=collate_fn)  # type: ignore
+    eval_dl = DataLoader(stemp_ds["eval"], batch_size=batch_size, collate_fn=collate_fn)  # type: ignore
 
     # train loop
     for i_epoch in tqdm(range(epochs), desc="Epochs"):
@@ -49,4 +50,8 @@ if __name__ == "__main__":
             pbar.set_postfix(loss=f"{loss.item():.4f}")
 
     # eval
-    pass
+    x_str = stemp.get_sample_prompt()
+    x = torch.tensor(tokenizer(x_str)["input_ids"]).reshape(1, -1)
+    y = model.generate(x, max_output_tokens=32)
+    y_str = tokenizer.decode(y[0].tolist())
+    print(f"{x_str}::{y_str}")
