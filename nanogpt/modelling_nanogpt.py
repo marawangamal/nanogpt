@@ -10,6 +10,7 @@ import torch
 
 # TODO: use causal attn mask
 # TODO: what exactly is weight tieing? Is there something more special to it
+# TODO: add positional encoding
 
 
 @dataclass
@@ -92,8 +93,8 @@ class MultiHeadAttention(torch.nn.Module):
 
         # compute attn matrix O(T^2D)
         gamma = 1 / torch.sqrt(torch.tensor(self.d_model))
-        a = (
-            torch.einsum("bqd,bkd->bqk", q, k) * gamma
+        a = torch.softmax(
+            torch.einsum("bqd,bkd->bqk", q, k) * gamma, dim=-1
         )  # i.e., a[b, i, j] = <q_bi, k_bj>
 
         # compute updated values
