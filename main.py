@@ -18,7 +18,7 @@ if __name__ == "__main__":
     n_layers = 2
     d_model = 512
     # hparams (opt)
-    epochs = 1
+    epochs = 10
     batch_size = 3
     lr = 1e-2
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -49,9 +49,9 @@ if __name__ == "__main__":
             # Update progress bar description with loss
             pbar.set_postfix(loss=f"{loss.item():.4f}")
 
-    # eval
-    x_str = stemp.get_sample_prompt()
-    x = torch.tensor(tokenizer(x_str)["input_ids"]).reshape(1, -1)
-    y = model.generate(x, max_output_tokens=32)
-    y_str = tokenizer.decode(y[0].tolist())
-    print(f"{x_str}::{y_str}")
+        # qualitative eval
+        x_str = stemp.get_sample_prompt()
+        x = torch.tensor(tokenizer(x_str)["input_ids"]).reshape(1, -1)
+        y = model.generate(x, max_output_tokens=32)
+        y_str = tokenizer.decode(y[0].tolist())
+        print(f"[{i_epoch}/{epochs}]{x_str}::{y_str}")
