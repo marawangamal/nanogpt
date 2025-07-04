@@ -65,9 +65,15 @@ class MultiHeadAttention(torch.nn.Module):
         self.d_model = d_model
 
         # params
-        self.w_q = torch.nn.Parameter(torch.randn(d_model, d_model))
-        self.w_k = torch.nn.Parameter(torch.randn(d_model, d_model))
-        self.w_v = torch.nn.Parameter(torch.randn(d_model, d_model))
+        self.w_q = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.empty(d_model, d_model))
+        )
+        self.w_k = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.empty(d_model, d_model))
+        )
+        self.w_v = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.empty(d_model, d_model))
+        )
 
     def forward(self, x: torch.Tensor):
         """Foward pass of MHA
@@ -85,7 +91,7 @@ class MultiHeadAttention(torch.nn.Module):
         v = torch.einsum("btk,kd->btd", x, self.w_v)
 
         # compute attn matrix O(T^2D)
-        gamma = 1 / torch.sqrt(1 / torch.tensor(self.d_model))
+        gamma = 1 / torch.sqrt(torch.tensor(self.d_model))
         a = (
             torch.einsum("bqd,bkd->bqk", q, k) * gamma
         )  # i.e., a[b, i, j] = <q_bi, k_bj>
