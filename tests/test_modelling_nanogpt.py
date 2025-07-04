@@ -21,6 +21,15 @@ class TestMHA(unittest.TestCase):
             "incorrect output shape",
         )
 
+    def test_mha_magnitude_pres(self):
+        x = torch.randn(self.batch_size, self.seq_len, self.d_model)
+        mha = MultiHeadAttention(self.d_model)
+        y = mha(x)  # Shape: (B, T, D)
+        mu_y = y.reshape(-1, self.d_model).mean(0)
+        mu_x = x.reshape(-1, self.d_model).mean(0)
+        # Magnitude should be reasonable
+        self.assertLessEqual(torch.linalg.norm(mu_y), 2 * torch.linalg.norm(mu_x))
+
 
 class TestNanoGPT(unittest.TestCase):
     def setUp(self) -> None:
