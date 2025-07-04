@@ -20,7 +20,7 @@ class ModelOutput:
     loss: Optional[torch.Tensor] = None
 
 
-class Linear(torch.nn.Module):
+class MLP(torch.nn.Module):
     def __init__(self, d_in: int, d_out, dropout: float = 0.5):
         super().__init__()
         self.fc = torch.nn.Sequential(
@@ -114,7 +114,7 @@ class NanoGPTBlock(torch.nn.Module):
         self.ln_1 = LayerNorm(d_model)
         self.attn = MultiHeadAttention(d_model)
         self.ln_2 = LayerNorm(d_model)
-        self.mlp = Linear(d_model, d_model)
+        self.mlp = MLP(d_model, d_model)
 
     def forward(self, x: torch.Tensor):
         y = x
