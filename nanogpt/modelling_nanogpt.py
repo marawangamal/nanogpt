@@ -2,12 +2,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 import torch
 
-
-# debug
-# ones = torch.ones(5).reshape(1, -1).repeat(2, 0)
-# x = torch.stack([torch.arange(5), torch.arange(5,10)])
-
-
+# TODO:
 # [x]: use causal attn mask
 # [ ]: Is there something more special to do for weight tieing enc/dec?
 # [ ]: add positional encoding
