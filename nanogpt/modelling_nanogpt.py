@@ -7,16 +7,17 @@ import torch
 # [ ]: Is there something more special to do for weight tieing enc/dec?
 # [ ]: add positional encoding
 # [ ]: use `stop_token` in generate
+# [ ]: kv cache
 
 # Fixes:
 # [x] fix the mask -inf
 # [x] kaiming init encoder and decoder (fixed loss magnitude issue)
 # [x] pos enc
+# [x] attn dropout
 # [ ] use linear w/ bias
 # [ ] multi-head instead of single head
 # [ ] 4x larger in the MLP first layer
 # [ ] separate decoder
-# [ ] attn dropout
 
 
 @dataclass
@@ -26,14 +27,12 @@ class ModelOutput:
 
 
 class MLP(torch.nn.Module):
-    def __init__(self, d_in: int, d_out, dropout: float = 0.5):
+    def __init__(self, d_in: int, d_out, dropout: float = 0.0):
         super().__init__()
         self.fc = torch.nn.Sequential(
             torch.nn.Linear(d_in, d_in),
-            # torch.nn.Linear(d_in,4*d_in),
             torch.nn.ReLU(),
-            torch.nn.Linear(d_in, d_in),
-            # torch.nn.Linear(4*d_in,d_in),
+            torch.nn.Linear(d_in, d_out),
             torch.nn.Dropout(dropout),
         )
 
@@ -68,7 +67,7 @@ class LayerNorm(torch.nn.Module):
 
 
 class MultiHeadAttention(torch.nn.Module):
-    def __init__(self, d_model: int) -> None:
+    def __init__(self, d_model: int, dropout: float = 0.0) -> None:
         super().__init__()
         # dims
         self.d_model = d_model
@@ -83,6 +82,7 @@ class MultiHeadAttention(torch.nn.Module):
         self.w_v = torch.nn.init.kaiming_uniform_(
             torch.nn.Parameter(torch.empty(d_model, d_model))
         )
+        self.dropout = torch.nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor, mask: Optional[torch.Tensor] = None):
         """Foward pass of MHA
@@ -104,39 +104,35 @@ class MultiHeadAttention(torch.nn.Module):
         # compute attn matrix O(T^2D)
         gamma = 1 / torch.sqrt(torch.tensor(self.d_model))
         mask = torch.tril(torch.ones(x.size(1), x.size(1))) if not mask else mask
-        # replacements 0 => -inf, 1 => 0
         mask[mask == 0] = -torch.inf
         mask[mask == 1] = 0
-        # att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
-        # BUG: mask 0 should be -inf
-        a = torch.softmax(
+        attn = torch.softmax(
             ((torch.einsum("bqd,bkd->bqk", q, k) * gamma) + mask),
             dim=-1,
         )  # i.e., a[b, i, j] = <q_bi, k_bj>
+        attn = self.dropout(attn)
 
         # compute updated values
-        y = torch.einsum("bqt,btd->bqd", a, v)
+        y = torch.einsum("bqt,btd->bqd", attn, v)
 
         return y
 
 
 class NanoGPTBlock(torch.nn.Module):
-    def __init__(self, d_model):
+    def __init__(self, d_model, dropout):
         super().__init__()
         self.ln_1 = LayerNorm(d_model)
-        self.attn = MultiHeadAttention(d_model)
+        self.attn = MultiHeadAttention(d_model, dropout=dropout)
         self.ln_2 = LayerNorm(d_model)
-        self.mlp = MLP(d_model, d_model)
+        self.mlp = MLP(d_model, d_model, dropout=dropout)
 
     def forward(self, x: torch.Tensor):
-        y = x
-        for op in [self.ln_1, self.attn, self.ln_2, self.mlp]:
-            y = op(y)
-        return x + y
+        y = self.attn(self.ln_1(x)) + x
+        return self.mlp(self.ln_2(y)) + y
 
 
 class NanoGPT(torch.nn.Module):
-    def __init__(self, n_layers, d_model, d_vocab, d_block):
+    def __init__(self, n_layers, d_model, d_vocab, d_block, dropout=0.0):
         super().__init__()
         # dims
         self.n_layers, self.d_model, self.d_vocab, self.d_block = (
@@ -153,7 +149,7 @@ class NanoGPT(torch.nn.Module):
         self.pos_encoder = torch.nn.init.kaiming_uniform_(
             torch.nn.Parameter(torch.randn(d_block, d_model))
         )
-        self.layers = [NanoGPTBlock(d_model)] * n_layers
+        self.layers = [NanoGPTBlock(d_model, dropout)] * n_layers
 
         # decoder
         self.decoder = torch.nn.init.kaiming_uniform_(
@@ -174,7 +170,11 @@ class NanoGPT(torch.nn.Module):
         ), "Invalid target tokens"
 
         # fw pass logic
-        xi = torch.arange(0, x.size(1)).unsqueeze(0).repeat((x.size(0), 1))
+        xi = (
+            torch.arange(0, x.size(1), device=x.device)
+            .unsqueeze(0)
+            .repeat((x.size(0), 1))
+        )
         z = self.token_encoder[x] + self.pos_encoder[xi]  # (B, T, D)
         for lyr in self.layers:
             z = lyr(z)

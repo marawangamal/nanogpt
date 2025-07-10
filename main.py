@@ -44,6 +44,7 @@ if __name__ == "__main__":
     # train loop
     pbar = tqdm(range(epochs), desc="Epochs")
     for i_epoch in pbar:
+        model.train()
         pbar_i = tqdm(train_dl, desc=f"Epoch {i_epoch+1}", leave=False)
         train_losses = []
         for batch in pbar_i:
@@ -60,6 +61,7 @@ if __name__ == "__main__":
             pbar_i.set_postfix(loss=f"{loss.item():.4f}")
 
         # eval
+        model.eval()
         with torch.no_grad():
             # qualitative
             x_str = stemp.get_sample_prompt()
