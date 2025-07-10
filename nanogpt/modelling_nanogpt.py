@@ -9,11 +9,14 @@ import torch
 # [ ]: use `stop_token` in generate
 
 # Fixes:
-# fix the mask -inf
-# pos enc
-# multi-head instead of single head
-# 4x larger in the MLP first layer
-# separate decoder
+# [x] fix the mask -inf
+# [x] kaiming init encoder and decoder (fixed loss magnitude issue)
+# [ ] pos enc
+# [ ] use linear w/ bias
+# [ ] multi-head instead of single head
+# [ ] 4x larger in the MLP first layer
+# [ ] separate decoder
+# [ ] attn dropout
 
 
 @dataclass
@@ -133,13 +136,29 @@ class NanoGPTBlock(torch.nn.Module):
 
 
 class NanoGPT(torch.nn.Module):
-    def __init__(self, n_layers, d_model, d_vocab):
+    def __init__(self, n_layers, d_model, d_vocab, d_block):
         super().__init__()
         # dims
-        self.n_layers, self.d_model, self.d_vocab = n_layers, d_model, d_vocab
-        self.encoder = torch.nn.Parameter(torch.randn(d_vocab, d_model))
+        self.n_layers, self.d_model, self.d_vocab, self.d_block = (
+            n_layers,
+            d_model,
+            d_vocab,
+            d_block,  # ctx length
+        )
+
+        # encoder
+        self.token_encoder = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.randn(d_vocab, d_model))
+        )
+        self.pos_encoder = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.randn(d_block, d_model))
+        )
         self.layers = [NanoGPTBlock(d_model)] * n_layers
-        self.decoder = self.encoder
+
+        # decoder
+        self.decoder = torch.nn.init.kaiming_uniform_(
+            torch.nn.Parameter(torch.empty(d_vocab, d_model))
+        )
 
     def forward(self, x: torch.Tensor, y: Optional[torch.Tensor] = None):
         """NanoGPT fw pass
@@ -155,7 +174,8 @@ class NanoGPT(torch.nn.Module):
         ), "Invalid target tokens"
 
         # fw pass logic
-        z = self.encoder[x]  # (B, T, D)
+        xi = torch.arange(0, x.size(1)).unsqueeze(0).repeat((x.size(0), 1))
+        z = self.token_encoder[x] + self.pos_encoder[xi]  # (B, T, D)
         for lyr in self.layers:
             z = lyr(z)
         logits = torch.einsum("btd,vd -> btv", z, self.decoder)

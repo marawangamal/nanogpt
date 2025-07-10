@@ -30,7 +30,9 @@ if __name__ == "__main__":
 
     # load model & tokenizer
     tokenizer = AutoTokenizer.from_pretrained("gpt2")  # (~30k tokens)
-    model = NanoGPT(n_layers=n_layers, d_model=d_model, d_vocab=len(tokenizer))
+    model = NanoGPT(
+        n_layers=n_layers, d_model=d_model, d_vocab=len(tokenizer), d_block=1024
+    )
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
 
     # load data
