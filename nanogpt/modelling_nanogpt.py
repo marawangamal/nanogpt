@@ -11,7 +11,7 @@ import torch
 # Fixes:
 # [x] fix the mask -inf
 # [x] kaiming init encoder and decoder (fixed loss magnitude issue)
-# [ ] pos enc
+# [x] pos enc
 # [ ] use linear w/ bias
 # [ ] multi-head instead of single head
 # [ ] 4x larger in the MLP first layer
