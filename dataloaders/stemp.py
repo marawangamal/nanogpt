@@ -1,6 +1,8 @@
 import random
 from dataloaders.base import AbstractDataset
+
 from datasets import DatasetDict, Dataset
+from transformers import AutoTokenizer
 
 
 class DataIterator:
@@ -9,36 +11,12 @@ class DataIterator:
         self.split = split
         self.shift = shift
 
-    def _clip_temp(self, temp: int) -> int:
-        return max(-40, min(80, temp))
+    @staticmethod
+    def _clip_temp(temp: int, min_val: int = -40, max_val: int = 80) -> int:
+        return max(min_val, min(max_val, temp))
 
     def _sample_celsius(self):
-        # Base distribution with normal shape
-
-        if self.split == "train":
-            # Normal distribution centered at 20°C
-            return self._clip_temp(int(random.gauss(20, 2)))
-
-        # Eval/Test distribution depends on shift level
-        if self.shift == "in":
-            return self._clip_temp(int(random.gauss(20, 2)))
-        elif self.shift == "mild":
-            return self._clip_temp(int(random.gauss(25, 2)))
-        elif self.shift == "hard":
-            return self._clip_temp(int(random.gauss(30, 2)))  # 45-35
-        else:
-            raise ValueError(f"Invalid shift: {self.shift}")
-
-    def _sample_celsius_v1(self):
-        # Train distribution is always the same
-        if self.split == "train":
-            return random.randint(-20, 40)
-        # Eval/Test distribution depends on shift level
-        if self.shift == "in":
-            return random.randint(-20, 40)  # IID
-        if self.shift == "mild":
-            return random.randint(-40, 80)  # larger but overlapping
-        return random.randint(80, 200)  # disjoint (hard)
+        return self._clip_temp(int(random.gauss(20, 2)))
 
     def __iter__(self):
         for _ in range(self.num_samples):
@@ -137,7 +115,6 @@ class STemp(AbstractDataset):
 
 
 if __name__ == "__main__":
-    from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
     stemp = STemp(tokenizer, max_num_samples=100).load_data()

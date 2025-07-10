@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Optional
 import torch
 
 # TODO:
@@ -7,6 +7,13 @@ import torch
 # [ ]: Is there something more special to do for weight tieing enc/dec?
 # [ ]: add positional encoding
 # [ ]: use `stop_token` in generate
+
+# Fixes:
+# fix the mask -inf
+# pos enc
+# multi-head instead of single head
+# 4x larger in the MLP first layer
+# separate decoder
 
 
 @dataclass
@@ -20,8 +27,10 @@ class MLP(torch.nn.Module):
         super().__init__()
         self.fc = torch.nn.Sequential(
             torch.nn.Linear(d_in, d_in),
+            # torch.nn.Linear(d_in,4*d_in),
             torch.nn.ReLU(),
             torch.nn.Linear(d_in, d_in),
+            # torch.nn.Linear(4*d_in,d_in),
             torch.nn.Dropout(dropout),
         )
 
@@ -92,8 +101,13 @@ class MultiHeadAttention(torch.nn.Module):
         # compute attn matrix O(T^2D)
         gamma = 1 / torch.sqrt(torch.tensor(self.d_model))
         mask = torch.tril(torch.ones(x.size(1), x.size(1))) if not mask else mask
+        # replacements 0 => -inf, 1 => 0
+        mask[mask == 0] = -torch.inf
+        mask[mask == 1] = 0
+        # att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf'))
+        # BUG: mask 0 should be -inf
         a = torch.softmax(
-            ((torch.einsum("bqd,bkd->bqk", q, k) * gamma) * mask),
+            ((torch.einsum("bqd,bkd->bqk", q, k) * gamma) + mask),
             dim=-1,
         )  # i.e., a[b, i, j] = <q_bi, k_bj>
 
@@ -149,7 +163,7 @@ class NanoGPT(torch.nn.Module):
         # train mode
         if y is not None:
             loss = torch.nn.functional.cross_entropy(
-                logits.reshape(-1, self.d_vocab), y.reshape(-1)
+                logits.reshape(-1, self.d_vocab), y.reshape(-1)  # (BT, V), (BT,)
             )
             return ModelOutput(logits=logits, loss=loss)
         return ModelOutput(logits=logits)
