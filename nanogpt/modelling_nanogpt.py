@@ -63,6 +63,9 @@ class LayerNorm(torch.nn.Module):
         """
         mu_x = x.mean(-1, keepdim=True)
         var_x = x.var(-1, keepdim=True)
+        # print(f"mu_x: {mu_x.device}")
+        # print(f"gamma: {self.gamma.device}")
+        # print(f"bias: {self.bias.device}")
         y = (x - mu_x / torch.sqrt(var_x)) * self.gamma + self.bias
         return y
 
@@ -119,8 +122,12 @@ class MultiHeadAttention(torch.nn.Module):
             v = torch.stack([self.cache["value"], k], dim=1)  # (B, T, D)
 
         # compute attn matrix O(T^2D)
-        gamma = 1 / torch.sqrt(torch.tensor(self.d_model))
-        mask = torch.tril(torch.ones(x.size(1), x.size(1)))[-t:] if not mask else mask
+        gamma = 1 / torch.sqrt(torch.tensor(self.d_model, device=x.device))
+        mask = (
+            torch.tril(torch.ones(x.size(1), x.size(1), device=x.device))[-t:]
+            if not mask
+            else mask
+        )
         mask[mask == 0] = -torch.inf
         mask[mask == 1] = 0
         attn = torch.softmax(
@@ -175,7 +182,7 @@ class NanoGPT(torch.nn.Module):
         self.pos_encoder = torch.nn.init.kaiming_uniform_(
             torch.nn.Parameter(torch.randn(d_block, d_model))
         )
-        self.layers = [NanoGPTBlock(d_model, dropout)] * n_layers
+        self.layers = torch.nn.ModuleList([NanoGPTBlock(d_model, dropout)] * n_layers)
 
         # decoder
         self.decoder = torch.nn.init.kaiming_uniform_(
@@ -225,8 +232,11 @@ class NanoGPT(torch.nn.Module):
     ):
         with torch.no_grad():
             B, T = x.shape
+            dv = x.device
             active_mask = torch.ones(B, dtype=torch.long) == 1
-            y = torch.cat([x, torch.empty(B, max_output_tokens, dtype=torch.int64)], -1)
+            y = torch.cat(
+                [x, torch.empty(B, max_output_tokens, dtype=torch.int64, device=dv)], -1
+            )
             for t in range(max_output_tokens):
                 logits = self(y[active_mask, : T + t], use_cache=use_cache).logits
                 py = torch.softmax(logits[:, -1], dim=-1)  # Shape: (B, D)

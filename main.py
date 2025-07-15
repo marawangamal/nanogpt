@@ -34,15 +34,16 @@ def eval_generation_speed(
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # hparams (model)
-    parser.add_argument("--n_layers", default=4)
-    parser.add_argument("--d_model", default=512)
+    parser.add_argument("--n_layers", default=4, type=int)
+    parser.add_argument("--d_model", default=512, type=int)
+    parser.add_argument("--use_cache", action="store_true", default=False)
     # hparams (opt)
-    parser.add_argument("--epochs", default=100)
-    parser.add_argument("--batch_size", default=2)
-    parser.add_argument("--lr", default=1e-2)
+    parser.add_argument("--epochs", default=100, type=int)
+    parser.add_argument("--batch_size", default=2, type=int)
+    parser.add_argument("--lr", default=1e-3, type=float)
     # hparams (data)
-    parser.add_argument("--max_num_samples", default=5000)
-    parser.add_argument("--seq_len", default=256)
+    parser.add_argument("--max_num_samples", default=5000, type=int)
+    parser.add_argument("--seq_len", default=256, type=int)
     device = "cuda" if torch.cuda.is_available() else "cpu"
     args = parser.parse_args()
 
@@ -57,20 +58,21 @@ if __name__ == "__main__":
         d_vocab=len(tokenizer),
         d_block=1024,
     )
+    model.to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
     # load data
     stemp = STemp(tokenizer, max_num_samples=args.max_num_samples, seq_len=args.seq_len)
     stemp_ds = stemp.load_data()
-    train_dl = DataLoader(stemp_ds["train"], batch_size=batch_size, collate_fn=collate_fn)  # type: ignore
-    eval_dl = DataLoader(stemp_ds["eval"], batch_size=batch_size, collate_fn=collate_fn)  # type: ignore
+    train_dl = DataLoader(stemp_ds["train"], batch_size=args.batch_size, collate_fn=collate_fn)  # type: ignore
+    eval_dl = DataLoader(stemp_ds["eval"], batch_size=args.batch_size, collate_fn=collate_fn)  # type: ignore
     test_dl = DataLoader(stemp_ds["test"], batch_size=1, collate_fn=collate_fn)  # type: ignore
 
     # model perf
     print("Model Summary")
-    print(f"Params:    {sum([p.numel() for p in model.parameters()]):.2f}")
-    print(f"Size:      {sum([p.numel() * 4/1e-9 for p in model.parameters()]):.2f} GB")
-    print(f"Generate:  {eval_generation_speed(model)}s")
+    print(f"Params:    {sum([p.numel() for p in model.parameters()])}")
+    print(f"Size:      {sum([p.numel() *4e-9 for p in model.parameters()]):.2f} GB")
+    print(f"Generate:  {eval_generation_speed(model):.2f}s")
 
     # train loop
     pbar = tqdm(range(args.epochs), desc="Epochs")
@@ -97,10 +99,15 @@ if __name__ == "__main__":
             x_str = stemp.get_sample_prompt()
             x = torch.tensor(tokenizer(x_str)["input_ids"]).reshape(1, -1)
             y = model.generate(
-                x, max_output_tokens=128, stop_token=tokenizer.eos_token_id
+                x,
+                max_output_tokens=128,
+                stop_token=tokenizer.eos_token_id,
+                use_cache=args.use_cache,
             )
             y_str = tokenizer.decode(y[0].tolist(), skip_special_tokens=True)
-            print(f"[{i_epoch}/{args.epochs}]Eval generation: {x_str}::{y_str}")
+            print("=" * 100)
+            print(f"[{i_epoch}/{args.epochs}]Eval generation: \n{y_str}")
+            print("=" * 100)
 
             # eval (quantitative)
             eval_losses = []
