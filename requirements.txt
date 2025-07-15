@@ -1,3 +1,6 @@
 torch
 transformers
 datasets
+seaborn
+pandas
+psutil

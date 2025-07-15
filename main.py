@@ -124,7 +124,10 @@ if __name__ == "__main__":
                 x = batch["input_ids"]
                 y = batch["labels"]
                 y_hat = model.generate(
-                    x, max_output_tokens=128, stop_token=tokenizer.eos_token_id
+                    x,
+                    max_output_tokens=128,
+                    stop_token=tokenizer.eos_token_id,
+                    use_cache=args.use_cache,
                 )
                 y_hat = [stemp.parse_answer(p) for p in tokenizer.batch_decode(y_hat)]
                 corr += sum(y_hat[k] == y[k] for k in range(len(y_hat)))
