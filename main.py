@@ -1,3 +1,4 @@
+import argparse
 import time
 from tqdm import tqdm
 
@@ -31,16 +32,19 @@ def eval_generation_speed(
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
     # hparams (model)
-    n_layers = 2
-    d_model = 512
+    parser.add_argument("--n_layers", default=4)
+    parser.add_argument("--d_model", default=512)
     # hparams (opt)
-    epochs = 100
-    batch_size = 2
-    lr = 1e-2
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    parser.add_argument("--epochs", default=100)
+    parser.add_argument("--batch_size", default=2)
+    parser.add_argument("--lr", default=1e-2)
     # hparams (data)
-    max_num_samples = 2
+    parser.add_argument("--max_num_samples", default=5000)
+    parser.add_argument("--seq_len", default=256)
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    args = parser.parse_args()
 
     # reproducibility
     torch.manual_seed(0)
@@ -48,12 +52,15 @@ if __name__ == "__main__":
     # load model & tokenizer
     tokenizer = AutoTokenizer.from_pretrained("gpt2")  # (~30k tokens)
     model = NanoGPT(
-        n_layers=n_layers, d_model=d_model, d_vocab=len(tokenizer), d_block=1024
+        n_layers=args.n_layers,
+        d_model=args.d_model,
+        d_vocab=len(tokenizer),
+        d_block=1024,
     )
-    opt = torch.optim.AdamW(model.parameters(), lr=lr)
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr)
 
     # load data
-    stemp = STemp(tokenizer, max_num_samples=max_num_samples)
+    stemp = STemp(tokenizer, max_num_samples=args.max_num_samples, seq_len=args.seq_len)
     stemp_ds = stemp.load_data()
     train_dl = DataLoader(stemp_ds["train"], batch_size=batch_size, collate_fn=collate_fn)  # type: ignore
     eval_dl = DataLoader(stemp_ds["eval"], batch_size=batch_size, collate_fn=collate_fn)  # type: ignore
@@ -66,7 +73,7 @@ if __name__ == "__main__":
     print(f"Generate:  {eval_generation_speed(model)}s")
 
     # train loop
-    pbar = tqdm(range(epochs), desc="Epochs")
+    pbar = tqdm(range(args.epochs), desc="Epochs")
     corr, n_trials = 0, 0
     for i_epoch in pbar:
         model.train()
@@ -81,8 +88,6 @@ if __name__ == "__main__":
             train_losses.append(loss.item())
             opt.step()
             opt.zero_grad()
-
-            # Update progress bar description with loss
             pbar_i.set_postfix(loss=f"{loss.item():.4f}")
 
         # eval
@@ -95,7 +100,7 @@ if __name__ == "__main__":
                 x, max_output_tokens=128, stop_token=tokenizer.eos_token_id
             )
             y_str = tokenizer.decode(y[0].tolist(), skip_special_tokens=True)
-            print(f"[{i_epoch}/{epochs}]Eval generation: {x_str}::{y_str}")
+            print(f"[{i_epoch}/{args.epochs}]Eval generation: {x_str}::{y_str}")
 
             # eval (quantitative)
             eval_losses = []
