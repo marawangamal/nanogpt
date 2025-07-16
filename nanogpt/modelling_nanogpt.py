@@ -201,9 +201,7 @@ class NanoGPT(torch.nn.Module):
             torch.nn.Parameter(torch.empty(d_vocab, d_model))
         )
 
-    def forward(
-        self, x: torch.Tensor, y: Optional[torch.Tensor] = None, use_cache=False
-    ):
+    def forward(self, x: torch.Tensor, y: Optional[torch.Tensor] = None, **kwargs):
         """NanoGPT fw pass
 
         Args:
@@ -224,7 +222,7 @@ class NanoGPT(torch.nn.Module):
         )
         z = self.token_encoder[x] + self.pos_encoder[xi]  # (B, T, D)
         for lyr in self.layers:
-            z = lyr(z, use_cache=use_cache)
+            z = lyr(z, **kwargs)
         logits = torch.einsum("btd,vd -> btv", z, self.decoder)
 
         # train mode

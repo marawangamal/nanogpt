@@ -82,22 +82,17 @@ class TestKVCache(unittest.TestCase):
 
     def test_model_kv_cache(self):
         x = torch.randint(0, self.d_vocab, (self.batch_size, self.input_seq_len))
-        model1 = NanoGPT(
+        model = NanoGPT(
             n_layers=self.n_layers,
             d_model=self.d_model,
             d_vocab=self.d_vocab,
             d_block=self.d_block,
         )
-        model2 = NanoGPT(
-            n_layers=self.n_layers,
-            d_model=self.d_model,
-            d_vocab=self.d_vocab,
-            d_block=self.d_block,
-        )
-        y = model1.generate(
+        model.eval()
+        y = model.generate(
             x, max_output_tokens=self.output_seq_len, use_cache=False, do_sample=False
         )
-        y_cache = model2.generate(
+        y_cache = model.generate(
             x, max_output_tokens=self.output_seq_len, use_cache=True, do_sample=False
         )
 
