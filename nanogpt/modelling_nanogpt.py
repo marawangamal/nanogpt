@@ -106,20 +106,24 @@ class MultiHeadAttention(torch.nn.Module):
             x (torch.Tensor): Input features. Shape: (B, T, D)
             mask (torch.Tensor): Attention mask (B, T, T)
 
-
         Returns:
             y (torch.Tensor): Output features. Shape: (B, T, D)
         """
 
         # project to query, key, value
-        t = 1 if kwargs.get("use_cache", False) else x.size(1)
-        q = torch.einsum("btk,kd->btd", x[:, -t:], self.w_q)
+        use_cache = kwargs.get("use_cache", False) and all(
+            [self.cache[k] is not None for k in self.cache.keys()]
+        )
+        t = 1 if use_cache else x.size(1)
+        q = torch.einsum("btq,qd->btd", x[:, -t:], self.w_q)
         k = torch.einsum("btk,kd->btd", x[:, -t:], self.w_k)
-        v = torch.einsum("btk,kd->btd", x[:, -t:], self.w_v)
+        v = torch.einsum("btv,vd->btd", x[:, -t:], self.w_v)
 
-        if kwargs.get("use_cache", False) and self.cache["key"] and self.cache["value"]:
-            k = torch.stack([self.cache["key"], k], dim=1)
-            v = torch.stack([self.cache["value"], k], dim=1)  # (B, T, D)
+        if use_cache:
+            k = torch.cat([self.cache["key"][:, : x.size(1) - 1], k], dim=1)
+            v = torch.cat(
+                [self.cache["value"][:, : x.size(1) - 1], v], dim=1
+            )  # (B, T, D)
 
         # compute attn matrix O(T^2D)
         gamma = 1 / torch.sqrt(torch.tensor(self.d_model, device=x.device))
@@ -136,17 +140,25 @@ class MultiHeadAttention(torch.nn.Module):
         )  # i.e., a[b, i, j] = <q_bi, k_bj>
         attn = self.dropout(attn)
 
-        if kwargs.get("use_cache", False) and self.cache["attn"]:
+        if use_cache:
             B, T, _ = x.shape
-            # (B, T-1, T-1) + (B, T, 1) => (B, T-1, T)
-            attn_ = torch.stack(
-                [self.cache["attn"], torch.zeros(B, T, 1, device=x.device)], dim=-1
+            # (B, T-1, T-1) + (B, T-1, 1) => (B, T-1, T)
+            attn_ = torch.cat(
+                [
+                    self.cache["attn"][:, : x.size(1) - 1, : x.size(1) - 1],
+                    torch.zeros(B, x.size(1) - 1, 1, device=x.device),
+                ],
+                dim=-1,
             )
             # (B, T-1, T) + (B, 1, T) => (B, T, T)
-            attn = torch.stack([attn_, attn], dim=1)
+            # at each iter t we add new row [<qt, k1>, <qt, k2>, ..., <qt, kt>]
+            attn = torch.cat([attn_, attn], dim=1)
 
         # compute updated values
         y = torch.einsum("bqt,btd->bqd", attn, v)
+
+        if kwargs.get("use_cache"):
+            self.cache["key"], self.cache["value"], self.cache["attn"] = k, v, attn
 
         return y
 
@@ -229,6 +241,7 @@ class NanoGPT(torch.nn.Module):
         max_output_tokens: int,
         use_cache: bool = False,
         stop_token: Optional[int] = None,
+        do_sample=True,
     ):
         with torch.no_grad():
             B, T = x.shape
@@ -239,8 +252,10 @@ class NanoGPT(torch.nn.Module):
             )
             for t in range(max_output_tokens):
                 logits = self(y[active_mask, : T + t], use_cache=use_cache).logits
-                py = torch.softmax(logits[:, -1], dim=-1)  # Shape: (B, D)
-                yi = torch.multinomial(py, 1)  # (B, 1)
+                py = torch.softmax(logits[:, -1], dim=-1)  # Shape: (B, V)
+                yi = torch.argmax(py, dim=-1, keepdim=True)
+                if do_sample:
+                    yi = torch.multinomial(py, 1)  # (B, 1)
                 y[active_mask, T + t] = yi.reshape(-1)
 
                 # make inactive
