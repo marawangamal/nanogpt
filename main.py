@@ -47,6 +47,9 @@ if __name__ == "__main__":
     device = "cuda" if torch.cuda.is_available() else "cpu"
     args = parser.parse_args()
 
+    # logs
+    log_dir = "logs"
+
     # reproducibility
     torch.manual_seed(0)
 

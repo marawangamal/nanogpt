@@ -63,6 +63,7 @@ class LayerNorm(torch.nn.Module):
         """
         mu_x = x.mean(-1, keepdim=True)
         var_x = x.var(-1, keepdim=True)
+        # DEDBUG:
         # print(f"mu_x: {mu_x.device}")
         # print(f"gamma: {self.gamma.device}")
         # print(f"bias: {self.bias.device}")
@@ -70,31 +71,23 @@ class LayerNorm(torch.nn.Module):
         return y
 
 
-# class KVCache:
-#     def __init__(self):
-#         # self.cache = {"key": None, "value": None, "attn": None}
-#         self.keys = None
-#         self.query =None
-#         self.attn = None
-
-#     def update(self, keys)
-
-
 class MultiHeadAttention(torch.nn.Module):
-    def __init__(self, d_model: int, dropout: float = 0.0) -> None:
+    def __init__(self, d_model: int, dropout: float = 0.0, n_heads: int = 4) -> None:
         super().__init__()
         # dims
         self.d_model = d_model
+        self.n_heads = n_heads
 
         # params
+        d = int(d_model / n_heads)
         self.w_q = torch.nn.init.kaiming_uniform_(
-            torch.nn.Parameter(torch.empty(d_model, d_model))
+            torch.nn.Parameter(torch.empty(d, d, n_heads))
         )
         self.w_k = torch.nn.init.kaiming_uniform_(
-            torch.nn.Parameter(torch.empty(d_model, d_model))
+            torch.nn.Parameter(torch.empty(d, d, n_heads))
         )
         self.w_v = torch.nn.init.kaiming_uniform_(
-            torch.nn.Parameter(torch.empty(d_model, d_model))
+            torch.nn.Parameter(torch.empty(d, d, n_heads))
         )
         self.dropout = torch.nn.Dropout(dropout)
         self.cache = {"key": None, "value": None, "attn": None}
@@ -109,15 +102,22 @@ class MultiHeadAttention(torch.nn.Module):
         Returns:
             y (torch.Tensor): Output features. Shape: (B, T, D)
         """
+        assert (
+            x.size(2) % 2 == 0 or self.n_heads < 2
+        ), "Embedding dimension must be divisble by 2 for n_heads > 1"
 
         # project to query, key, value
         use_cache = kwargs.get("use_cache", False) and all(
             [self.cache[k] is not None for k in self.cache.keys()]
         )
         t = 1 if use_cache else x.size(1)
-        q = torch.einsum("btq,qd->btd", x[:, -t:], self.w_q)
-        k = torch.einsum("btk,kd->btd", x[:, -t:], self.w_k)
-        v = torch.einsum("btv,vd->btd", x[:, -t:], self.w_v)
+        B, T, D = x.shape
+        dims = B, T, int(D / self.n_heads), self.n_heads
+        q = torch.einsum("btqh,qdh->btdh", x[:, -t:].reshape(*dims), self.w_q)
+        k = torch.einsum("btkh,kdh->btdh", x[:, -t:].reshape(*dims), self.w_k)
+        v = torch.einsum("btvh,vdh->btdh", x[:, -t:].reshape(*dims), self.w_v)
+        # concat head outputs
+        q, k, v = q.reshape(B, T, D), k.reshape(B, T, D), v.reshape(B, T, D)
 
         if use_cache:
             k = torch.cat([self.cache["key"][:, : x.size(1) - 1], k], dim=1)
