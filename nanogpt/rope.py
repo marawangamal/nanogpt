@@ -7,9 +7,14 @@ tfunc = {
 }
 
 
+def is_even(x: int):
+    return not x % 2
+
+
 class RoPE(torch.nn.Module):
-    def __init__(self):
+    def __init__(self, omega_base: float = 1 / 1000):
         super().__init__()
+        self.omega_base = omega_base
 
     def forward(self, q: torch.Tensor, k: torch.Tensor):
         """Apply rotations to q and k.
@@ -21,27 +26,29 @@ class RoPE(torch.nn.Module):
 
         # create (block diagonal) rotation matrix
         B, T, D = q.shape
-        m = torch.stack(
-            [torch.tensor(1 / 1000 ** (2 * i / D)) for i in range(D)]
-        )  # (D,)
-        m = torch.einsum("t,d->td", torch.arange(0, T), m)
 
-        # create masks
-        mask_odd = (torch.arange(0, D) % 2).bool().reshape(1, -1).repeat(T, 1)
-        mask_even = ~mask_odd
+        omegas = torch.stack(
+            [torch.tensor(self.omega_base ** (2 * i / D)) for i in range(D // 2)]
+        ).repeat_interleave(2, dim=-1)
+        omegas = torch.einsum("t,d->td", torch.arange(0, T), omegas)
 
-        r_q, r_k = torch.zeros(B, T, D), torch.zeros(B, T, D)
-        for i in range(2):
-            # apply trig funcs
-            if i == 0:
-                m[mask_even] = torch.cos(m[mask_even])
-                m[mask_odd] = -torch.sin(m[mask_odd])
-            else:
-                m[mask_even] = torch.sin(m[mask_even])
-                m[mask_odd] = torch.cos(m[mask_odd])
+        v_cos = omegas.cos()
+        v_sin = omegas.sin()  # (B,T)
 
-            r_q += m.unsqueeze(0) * q
-            r_k += m.unsqueeze(0) * k
+        slct = (
+            torch.stack(
+                [torch.tensor(i + 1 if is_even(i) else i - 1) for i in range(D)]
+            )
+            .reshape(1, 1, -1)
+            .repeat(B, T, 1)
+        )
+        multipliers = (
+            torch.stack([torch.tensor(-1 if is_even(i) else 1) for i in range(D)])
+            .reshape(1, 1, -1)
+            .repeat(B, T, 1)
+        )
+        r_q = v_cos * q + v_sin * q.gather(dim=-1, index=slct) * multipliers
+        r_k = v_cos * k + v_sin * k.gather(dim=-1, index=slct) * multipliers
 
         return r_q, r_k
 
@@ -55,7 +62,7 @@ def test_shape():
 
 
 def test_angle_preservation():
-    rope = RoPE()
+    rope = RoPE(0.1)
     B, T, D = 4, 8, 2
     q, k = torch.randn(B, T // 2, D), torch.randn(B, T // 2, D)
     q, k = q.repeat(1, 2, 1), k.repeat(1, 2, 1)
@@ -72,7 +79,7 @@ def test_angle_preservation():
         / torch.linalg.norm(r_q[0, T // 2])
         * torch.linalg.norm(r_k[0, T // 2])
     )
-    return theta_1 == theta_2
+    return torch.allclose(theta_1, theta_2)
 
 
 def run_tests():
@@ -93,6 +100,17 @@ def plot_rope():
     q = torch.randn(1, 2, 2)
     k = torch.randn(1, 2, 2)
     r_q, r_k = rope(q, k)
+
+    # DEBUG:
+    # freq = lambda i: torch.tensor(1 / 1000 ** (2 * i / 2))
+    # m = torch.tensor(
+    #     [
+    #         [torch.cos(freq(0) * 0), torch.sin(freq(0) * 0)],
+    #         [-torch.sin(freq(0) * 1), torch.cos(freq(0) * 1)],
+    #     ]
+    # )
+    # r_q = torch.einsum("btd,de->bte", q, m)
+    # r_k = torch.einsum("btd,de->bte", k, m)
 
     q0 = q[0, 0] / q[0, 0].norm()
     k0 = k[0, 0] / k[0, 0].norm()
