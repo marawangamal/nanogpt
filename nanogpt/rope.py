@@ -49,8 +49,8 @@ class RoPE(torch.nn.Module):
             )
             omegas = torch.cat((omegas, v_omega), dim=0)
 
-        v_cos = omegas.cos()
-        v_sin = omegas.sin()  # (B,T)
+        v_cos = omegas[:T].cos()
+        v_sin = omegas[:T].sin()  # (B,T)
 
         slct = (
             torch.stack(
