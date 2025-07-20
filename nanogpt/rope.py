@@ -1,5 +1,5 @@
 import torch
-
+import matplotlib.pyplot as plt
 
 tfunc = {
     0: torch.sin,
@@ -85,5 +85,50 @@ def run_tests():
         print(f'[{t["name"]}] {t_stat}')
 
 
+def plot_rope():
+    import torch, matplotlib.pyplot as plt
+
+    torch.manual_seed(0)
+    rope = RoPE()
+    q = torch.randn(1, 2, 2)
+    k = torch.randn(1, 2, 2)
+    r_q, r_k = rope(q, k)
+
+    q0 = q[0, 0] / q[0, 0].norm()
+    k0 = k[0, 0] / k[0, 0].norm()
+    q1 = r_q[0, 0] / r_q[0, 0].norm()
+    k1 = r_k[0, 0] / r_k[0, 0].norm()
+
+    plt.quiver(
+        [0, 0],
+        [0, 0],
+        [q0[0], q1[0]],
+        [q0[1], q1[1]],
+        color=["C0", "C1"],
+        scale=2,
+    )
+    plt.quiver(
+        [0, 0],
+        [0, 0],
+        [k0[0], k1[0]],
+        [k0[1], k1[1]],
+        color=["C3", "C4"],
+        alpha=0.5,
+        scale=2,
+    )
+
+    # (optional) legend via dummy handles (comment out if not needed)
+    import matplotlib.patches as mpatches
+
+    patches = [
+        mpatches.FancyArrow(0, 0, 0, 0, color=c) for c in ["C0", "C1", "C3", "C4"]
+    ]
+    plt.legend(patches, ["q0", "q1", "k0", "k1"])
+
+    plt.gca().set_aspect("equal")
+    plt.show()
+
+
 if __name__ == "__main__":
     run_tests()
+    plot_rope()
