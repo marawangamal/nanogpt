@@ -1,5 +1,5 @@
 import torch
-import matplotlib.pyplot as plt
+from line_profiler import profile
 
 tfunc = {
     0: torch.sin,
@@ -15,7 +15,9 @@ class RoPE(torch.nn.Module):
     def __init__(self, omega_base: float = 1 / 1000):
         super().__init__()
         self.omega_base = omega_base
+        self.cache = {"omega_seq": None, "omega_vec": None}
 
+    @profile
     def forward(self, q: torch.Tensor, k: torch.Tensor):
         """Apply rotations to q and k.
 
@@ -28,13 +30,24 @@ class RoPE(torch.nn.Module):
         B, T, D = q.shape
         dv = q.device
 
-        omegas = torch.stack(
-            [
+        omegas = self.cache.get("omega_seq", None)
+        if omegas is None:
+            v_omega = [
                 torch.tensor(self.omega_base ** (2 * i / D), device=dv)
                 for i in range(D // 2)
             ]
-        ).repeat_interleave(2, dim=-1)
-        omegas = torch.einsum("t,d->td", torch.arange(0, T, device=dv), omegas)
+            v_omega = torch.stack(v_omega)
+            v_omega = v_omega.repeat_interleave(2, dim=-1)
+            omegas = torch.einsum("t,d->td", torch.arange(0, T, device=dv), v_omega)
+            self.cache["omega_seq"] = omegas
+            self.cache["omega_vec"] = v_omega
+        elif omegas.size(0) < T:
+            dt = T - omegas.size(0)
+            # add row (t', d) => (t, d)
+            v_omega = torch.einsum(
+                "t,d->td", torch.arange(T - dt, T, device=dv), self.cache["omega_vec"]
+            )
+            omegas = torch.cat((omegas, v_omega), dim=0)
 
         v_cos = omegas.cos()
         v_sin = omegas.sin()  # (B,T)

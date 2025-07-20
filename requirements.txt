@@ -4,3 +4,4 @@ datasets
 seaborn
 pandas
 psutil
+line_profiler
