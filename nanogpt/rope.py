@@ -26,24 +26,33 @@ class RoPE(torch.nn.Module):
 
         # create (block diagonal) rotation matrix
         B, T, D = q.shape
+        dv = q.device
 
         omegas = torch.stack(
-            [torch.tensor(self.omega_base ** (2 * i / D)) for i in range(D // 2)]
+            [
+                torch.tensor(self.omega_base ** (2 * i / D), device=dv)
+                for i in range(D // 2)
+            ]
         ).repeat_interleave(2, dim=-1)
-        omegas = torch.einsum("t,d->td", torch.arange(0, T), omegas)
+        omegas = torch.einsum("t,d->td", torch.arange(0, T, device=dv), omegas)
 
         v_cos = omegas.cos()
         v_sin = omegas.sin()  # (B,T)
 
         slct = (
             torch.stack(
-                [torch.tensor(i + 1 if is_even(i) else i - 1) for i in range(D)]
+                [
+                    torch.tensor(i + 1 if is_even(i) else i - 1, device=dv)
+                    for i in range(D)
+                ]
             )
             .reshape(1, 1, -1)
             .repeat(B, T, 1)
         )
         multipliers = (
-            torch.stack([torch.tensor(-1 if is_even(i) else 1) for i in range(D)])
+            torch.stack(
+                [torch.tensor(-1 if is_even(i) else 1, device=dv) for i in range(D)]
+            )
             .reshape(1, 1, -1)
             .repeat(B, T, 1)
         )
@@ -80,6 +89,15 @@ def test_angle_preservation():
         * torch.linalg.norm(r_k[0, T // 2])
     )
     return torch.allclose(theta_1, theta_2)
+
+
+def test_angle_change():
+    rope = RoPE(0.1)
+    B, T, D = 4, 8, 2
+    q, k = torch.randn(B, T // 2, D), torch.randn(B, T // 2, D)
+    q, k = q.repeat(1, 2, 1), k.repeat(1, 2, 1)
+    r_q, r_k = rope(q, k)
+    return not torch.allclose(q, r_q)
 
 
 def run_tests():

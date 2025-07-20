@@ -3,6 +3,8 @@ from re import L
 from typing import Optional
 import torch
 
+from nanogpt.rope import RoPE
+
 # TODO:
 # [x]: use causal attn mask
 # [ ]: Is there something more special to do for weight tieing enc/dec?
@@ -77,6 +79,7 @@ class MultiHeadAttention(torch.nn.Module):
         # dims
         self.d_model = d_model
         self.n_heads = n_heads
+        # self.rope = RoPE()
 
         # params
         d = int(d_model / n_heads)
@@ -118,6 +121,8 @@ class MultiHeadAttention(torch.nn.Module):
         v = torch.einsum("btvh,vdh->btdh", x[:, -t:].reshape(*dims), self.w_v)
         # concat head outputs
         q, k, v = q.reshape(B, T, D), k.reshape(B, T, D), v.reshape(B, T, D)
+        # apply RoPE pos enc (too slow)
+        # q, k = self.rope(q, k)
 
         if use_cache:
             k = torch.cat([self.cache["key"][:, : x.size(1) - 1], k], dim=1)
@@ -220,7 +225,9 @@ class NanoGPT(torch.nn.Module):
             .unsqueeze(0)
             .repeat((x.size(0), 1))
         )
+        # without/fixed/ropewith/ enc acc: 0.0/0.094/0.042
         z = self.token_encoder[x] + self.pos_encoder[xi]  # (B, T, D)
+        # z = self.token_encoder[x]
         for lyr in self.layers:
             z = lyr(z, **kwargs)
         logits = torch.einsum("btd,vd -> btv", z, self.decoder)

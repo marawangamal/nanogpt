@@ -38,7 +38,7 @@ if __name__ == "__main__":
     parser.add_argument("--d_model", default=512, type=int)
     parser.add_argument("--use_cache", action="store_true", default=False)
     # hparams (opt)
-    parser.add_argument("--epochs", default=10, type=int)
+    parser.add_argument("--epochs", default=5, type=int)
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument("--lr", default=1e-3, type=float)
     # hparams (data)
